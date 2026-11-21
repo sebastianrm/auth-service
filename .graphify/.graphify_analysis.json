@@ -1,0 +1,266 @@
+{
+  "communities": {
+    "0": [
+      "service_jwtservice",
+      "service_jwtservice_jwtservice",
+      "service_jwtservice_jwtservice_buildsigningkey",
+      "service_jwtservice_jwtservice_extractroles",
+      "service_jwtservice_jwtservice_generateaccesstoken",
+      "service_jwtservice_jwtservice_generaterefreshtoken",
+      "service_jwtservice_jwtservice_getaccesstokenexpirationseconds",
+      "service_jwtservice_jwtservice_getrefreshtokenexpirationseconds",
+      "service_jwtservice_jwtservice_jwtservice",
+      "service_jwtservice_jwtservice_parsetoken",
+      "service_jwtservice_jwtservice_toinstant"
+    ],
+    "1": [
+      "service_jwtservicetest",
+      "service_jwtservicetest_jwtservicetest",
+      "service_jwtservicetest_jwtservicetest_credential",
+      "service_jwtservicetest_jwtservicetest_setup",
+      "service_jwtservicetest_jwtservicetest_shouldincludeexpectedclaimsingeneratedaccesstoken",
+      "service_jwtservicetest_jwtservicetest_shouldissuerefreshtokenwithrefreshtype",
+      "service_jwtservicetest_jwtservicetest_shouldrejectaccesstokenwhenrefreshtokenisexpected",
+      "service_jwtservicetest_jwtservicetest_shouldrejectexpiredtoken",
+      "service_jwtservicetest_jwtservicetest_shouldrejectsecretshorterthanthirtytwobytes",
+      "service_jwtservicetest_jwtservicetest_shouldrejecttokenwithinvalidsignature",
+      "service_jwtservicetest_jwtservicetest_shouldsigntokenswithhs256algorithm"
+    ],
+    "2": [
+      "service_authservicetest",
+      "service_authservicetest_authservicetest",
+      "service_authservicetest_authservicetest_credential",
+      "service_authservicetest_authservicetest_shouldissuenewaccesstokenwhenrefreshtokenisvalid",
+      "service_authservicetest_authservicetest_shouldissuetokenswhencredentialsarevalid",
+      "service_authservicetest_authservicetest_shouldrejectloginwhencredentialisdisabled",
+      "service_authservicetest_authservicetest_shouldrejectloginwhenpasswordiswrong",
+      "service_authservicetest_authservicetest_shouldrejectloginwhenuserdoesnotexist",
+      "service_authservicetest_authservicetest_shouldrejectrefreshwhentokenisinvalid",
+      "service_authservicetest_authservicetest_shouldreturnclaimswhenaccesstokenisvalid"
+    ],
+    "3": [
+      "rest_globalexceptionhandler",
+      "rest_globalexceptionhandler_globalexceptionhandler",
+      "rest_globalexceptionhandler_globalexceptionhandler_buildresponse",
+      "rest_globalexceptionhandler_globalexceptionhandler_handlebusinessexception",
+      "rest_globalexceptionhandler_globalexceptionhandler_handleduplicatekeyexception",
+      "rest_globalexceptionhandler_globalexceptionhandler_handleinputexception",
+      "rest_globalexceptionhandler_globalexceptionhandler_handleunexpectedexception",
+      "rest_globalexceptionhandler_globalexceptionhandler_handlevalidationexception",
+      "rest_globalexceptionhandler_globalexceptionhandler_resolvestatus"
+    ],
+    "4": [
+      "persistence_reactiveadapter",
+      "persistence_reactiveadapter_reactiveadapter",
+      "persistence_reactiveadapter_reactiveadapter_reactiveadapter",
+      "persistence_reactiveadapter_reactiveadapter_tocompletable",
+      "persistence_reactiveadapter_reactiveadapter_toflowable",
+      "persistence_reactiveadapter_reactiveadapter_tomaybe",
+      "persistence_reactiveadapter_reactiveadapter_tosingle"
+    ],
+    "5": [
+      "processedevent",
+      "reactivemongorepository",
+      "repository_processedeventrepository",
+      "repository_processedeventrepository_processedeventrepository",
+      "repository_processedeventrepository_processedeventrepository_existsbyeventkey",
+      "repository_processedeventrepository_processedeventrepository_findbyeventkey",
+      "string"
+    ],
+    "6": [
+      "service_authservice",
+      "service_authservice_authservice",
+      "service_authservice_authservice_buildissuedtokens",
+      "service_authservice_authservice_invalidcredentials",
+      "service_authservice_authservice_login",
+      "service_authservice_authservice_refresh",
+      "service_authservice_authservice_validate"
+    ],
+    "7": [
+      "controller_authcontroller",
+      "controller_authcontroller_authcontroller",
+      "controller_authcontroller_authcontroller_extractbearertoken",
+      "controller_authcontroller_authcontroller_login",
+      "controller_authcontroller_authcontroller_refresh",
+      "controller_authcontroller_authcontroller_validate"
+    ],
+    "8": [
+      "tests_authservicetest",
+      "tests_authservicetest_authservicetest",
+      "tests_authservicetest_authservicetest_setup",
+      "tests_authservicetest_authservicetest_testhappypathloginsuccess",
+      "tests_authservicetest_authservicetest_testloginexternalserviceerror",
+      "tests_authservicetest_authservicetest_testloginfailureinvalidcredentials"
+    ],
+    "9": [
+      "exception_businessexception",
+      "exception_businessexception_businessexception",
+      "exception_businessexception_businessexception_businessexception",
+      "exception_businessexception_businessexception_getcode",
+      "runtimeexception"
+    ],
+    "10": [
+      "auth_authserviceapplication",
+      "auth_authserviceapplication_authserviceapplication",
+      "auth_authserviceapplication_authserviceapplication_main"
+    ],
+    "11": [
+      "config_securityconfig",
+      "config_securityconfig_securityconfig",
+      "config_securityconfig_securityconfig_passwordencoder"
+    ],
+    "12": [
+      "event_topics",
+      "event_topics_topics",
+      "event_topics_topics_topics"
+    ],
+    "13": [
+      "config_cacheproperties",
+      "config_cacheproperties_cacheproperties"
+    ],
+    "14": [
+      "config_jwtproperties",
+      "config_jwtproperties_jwtproperties"
+    ],
+    "15": [
+      "dto_loginrequest",
+      "dto_loginrequest_tocommand"
+    ],
+    "16": [
+      "model_processedevent",
+      "model_processedevent_processedevent"
+    ],
+    "17": [
+      "dto_apierror"
+    ],
+    "18": [
+      "event_customerregisteredevent"
+    ],
+    "19": [
+      "model_logincommand"
+    ],
+    "20": [
+      "model_refreshcommand"
+    ]
+  },
+  "cohesion": {
+    "0": 0.23636363636363636,
+    "1": 0.2909090909090909,
+    "2": 0.28888888888888886,
+    "3": 0.3888888888888889,
+    "4": 0.2857142857142857,
+    "5": 0.38095238095238093,
+    "6": 0.3333333333333333,
+    "7": 0.4,
+    "8": 0.3333333333333333,
+    "9": 0.4,
+    "10": 0.6666666666666666,
+    "11": 0.6666666666666666,
+    "12": 0.6666666666666666,
+    "13": 1,
+    "14": 1,
+    "15": 1,
+    "16": 1,
+    "17": 1,
+    "18": 1,
+    "19": 1,
+    "20": 1
+  },
+  "gods": [
+    {
+      "id": "service_jwtservice_jwtservice",
+      "label": "JwtService",
+      "edges": 10,
+      "degree": 10
+    },
+    {
+      "id": "service_jwtservicetest_jwtservicetest",
+      "label": "JwtServiceTest",
+      "edges": 10,
+      "degree": 10
+    },
+    {
+      "id": "service_authservicetest_authservicetest",
+      "label": "AuthServiceTest",
+      "edges": 9,
+      "degree": 9
+    },
+    {
+      "id": "rest_globalexceptionhandler_globalexceptionhandler",
+      "label": "GlobalExceptionHandler",
+      "edges": 8,
+      "degree": 8
+    },
+    {
+      "id": "repository_processedeventrepository_processedeventrepository",
+      "label": "ProcessedEventRepository",
+      "edges": 6,
+      "degree": 6
+    },
+    {
+      "id": "service_authservice_authservice",
+      "label": "AuthService",
+      "edges": 6,
+      "degree": 6
+    },
+    {
+      "id": "persistence_reactiveadapter_reactiveadapter",
+      "label": "ReactiveAdapter",
+      "edges": 6,
+      "degree": 6
+    },
+    {
+      "id": "controller_authcontroller_authcontroller",
+      "label": "AuthController",
+      "edges": 5,
+      "degree": 5
+    },
+    {
+      "id": "tests_authservicetest_authservicetest",
+      "label": "AuthServiceTest",
+      "edges": 5,
+      "degree": 5
+    },
+    {
+      "id": "exception_businessexception_businessexception",
+      "label": "BusinessException",
+      "edges": 4,
+      "degree": 4
+    }
+  ],
+  "surprises": [],
+  "questions": [
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `ProcessedEvent`, `CacheProperties`, `JwtProperties` to the rest of the system?",
+      "why": "3 weakly-connected nodes found - possible documentation gaps or missing edges."
+    }
+  ],
+  "labels": {
+    "0": "Community 0",
+    "1": "Community 1",
+    "2": "Community 2",
+    "3": "Community 3",
+    "4": "Community 4",
+    "5": "Community 5",
+    "6": "Community 6",
+    "7": "Community 7",
+    "8": "Community 8",
+    "9": "Community 9",
+    "10": "Community 10",
+    "11": "Community 11",
+    "12": "Community 12",
+    "13": "Community 13",
+    "14": "Community 14",
+    "15": "Community 15",
+    "16": "Community 16",
+    "17": "Community 17",
+    "18": "Community 18",
+    "19": "Community 19",
+    "20": "Community 20"
+  },
+  "tokens": {
+    "input": 0,
+    "output": 0
+  }
+}
