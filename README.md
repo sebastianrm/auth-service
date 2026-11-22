@@ -702,3 +702,4 @@ src/main/java/com/yanki/auth
 - `init-mongo-parte1.js` — Credenciales de prueba (admin, operador)
 - `CASOS_USO/` — Casos de uso relacionados con autenticación
 - `system-prompt-auditoria-hexagonal-yanki.md` — Guía de auditoría hexagonal
+- `api/auth-service.yaml` — Contrato OpenAPI 3.0 completo con schemas, endpoints y errores

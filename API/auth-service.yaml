@@ -1,0 +1,707 @@
+openapi: 3.0.3
+info:
+  title: Yanki Auth Service API
+  description: |
+    API REST de autenticación y autorización de la plataforma bancaria Yanki.
+    
+    Gestiona el ciclo completo de tokens JWT (emisión, refresco, validación, invalidación)
+    y el CRUD de credenciales de acceso de los clientes.
+    
+    **Características principales:**
+    - Login con verificación BCrypt de contraseñas
+    - Emisión de tokens JWT HS256 (access + refresh)
+    - Refresco de access token usando refresh token
+    - Logout con invalidación de caché Redis
+    - Validación de tokens Bearer
+    - CRUD completo de credenciales con hash BCrypt
+    - Roles y permisos por cliente
+  version: 1.0.0
+  contact:
+    name: Sebastian Retamal Morales
+    email: retamal.sebastian@gmail.com
+  license:
+    name: Proprietary
+    url: https://yanki.com/license
+
+servers:
+  - url: http://localhost:8081
+    description: Entorno local de desarrollo
+  - url: https://api-gateway.yanki.com/api/auth
+    description: Entorno de producción (vía API Gateway)
+
+tags:
+  - name: Auth
+    description: Autenticación de clientes y emisión de tokens JWT
+  - name: Credentials
+    description: Gestión de credenciales de acceso de los clientes
+
+paths:
+  /api/auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Autentica a un cliente
+      description: |
+        Verifica las credenciales del cliente contra la base de datos usando BCrypt
+        y emite un access token y un refresh token JWT con firma HS256.
+        
+        **Flujo:**
+        1. Se busca la credencial por username
+        2. Se verifica que la credencial esté habilitada
+        3. Se compara la contraseña con el hash BCrypt
+        4. Se emiten los tokens JWT con los roles del cliente
+        5. Se actualiza el último login en la credencial
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              username: "juan.perez"
+              password: "MiClave123!"
+      responses:
+        '200':
+          description: Autenticación exitosa. Se devuelven los tokens JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+              example:
+                accessToken: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqdWFuLnBlcmV6IiwiZXhwIjoxNjk5OTk5OTk5fQ.abc123"
+                tokenType: "Bearer"
+                expiresIn: 3600
+                refreshToken: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqdWFuLnBlcmV6IiwidHlwZSI6InJlZnJlc2gifQ.xyz789"
+                username: "juan.perez"
+                roles:
+                  - "CUSTOMER"
+                  - "PERSONAL"
+        '401':
+          description: Credenciales inválidas o credencial deshabilitada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                timestamp: "2024-01-15T10:30:00Z"
+                status: 401
+                error: Unauthorized
+                code: INVALID_CREDENTIALS
+                message: Nombre de usuario o contraseña incorrectos
+                path: /api/auth/login
+        '404':
+          description: Credencial no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: Refresca el access token
+      description: |
+        Emite un nuevo access token usando el refresh token recibido.
+        El refresh token debe ser válido y no haber expirado.
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+            example:
+              refreshToken: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqdWFuLnBlcmV6IiwidHlwZSI6InJlZnJlc2gifQ.xyz789"
+      responses:
+        '200':
+          description: Access token refrescado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Refresh token inválido o expirado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/auth/logout:
+    post:
+      tags:
+        - Auth
+      summary: Cierra la sesión del usuario
+      description: |
+        Invalida la caché de credenciales del usuario autenticado en Redis.
+        El cliente debe enviar el access token en el encabezado Authorization
+        con el esquema Bearer.
+        
+        **Nota:** Los tokens JWT son stateless. La revocación real queda en manos
+        del cliente (descartando el token), pero el servidor limpia la caché de
+        credenciales para forzar una recarga en la siguiente operación.
+      operationId: logout
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          description: Encabezado Authorization con el token Bearer (formato: "Bearer <token>")
+          schema:
+            type: string
+            example: "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqdWFuLnBlcmV6IiwiZXhwIjoxNjk5OTk5OTk5fQ.abc123"
+      responses:
+        '200':
+          description: Sesión cerrada exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutResponse'
+              example:
+                message: "Sesión cerrada exitosamente"
+                success: true
+        '401':
+          description: Token inválido o faltante
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/auth/validate:
+    get:
+      tags:
+        - Auth
+      summary: Valida el access token
+      description: |
+        Valida el token Bearer recibido y devuelve sus claims (username, customerId, roles).
+        El token debe estar en el encabezado Authorization con el esquema Bearer.
+      operationId: validateToken
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          description: Encabezado Authorization con el token Bearer (formato: "Bearer <token>")
+          schema:
+            type: string
+            example: "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqdWFuLnBlcmV6IiwiZXhwIjoxNjk5OTk5OTk5fQ.abc123"
+      responses:
+        '200':
+          description: Token válido con sus claims
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenValidationResponse'
+              example:
+                valid: true
+                username: "juan.perez"
+                customerId: "CUST001"
+                roles:
+                  - "CUSTOMER"
+                  - "PERSONAL"
+        '401':
+          description: Token inválido, expirado o faltante
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/auth/credentials:
+    post:
+      tags:
+        - Credentials
+      summary: Crea una credencial de acceso
+      description: |
+        Registra una nueva credencial hasheando la contraseña con BCrypt.
+        La contraseña se recibe en claro por el canal seguro de la API pero
+        nunca se devuelve en ninguna respuesta.
+      operationId: createCredential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialCreateRequest'
+            example:
+              username: "juan.perez"
+              password: "MiClave123!"
+              customerId: "CUST001"
+              email: "juan.perez@correo.com"
+              roles:
+                - "CUSTOMER"
+                - "PERSONAL"
+              enabled: true
+      responses:
+        '201':
+          description: Credencial creada exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialResponse'
+        '400':
+          description: Datos de solicitud inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '409':
+          description: El username ya existe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    get:
+      tags:
+        - Credentials
+      summary: Lista las credenciales de acceso
+      description: Devuelve todas las credenciales registradas (sin exponer los hashes)
+      operationId: findAllCredentials
+      responses:
+        '200':
+          description: Lista de credenciales encontradas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CredentialResponse'
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/auth/credentials/{id}:
+    get:
+      tags:
+        - Credentials
+      summary: Consulta una credencial por su identificador
+      description: Retorna los datos de una credencial específica (sin exponer el hash)
+      operationId: getCredentialById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificador único de la credencial
+          schema:
+            type: string
+            example: "cred_001"
+      responses:
+        '200':
+          description: Credencial encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialResponse'
+        '404':
+          description: Credencial no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    put:
+      tags:
+        - Credentials
+      summary: Actualiza una credencial de acceso
+      description: |
+        Actualiza los datos de la credencial indicada. Todos los campos son opcionales:
+        los valores null conservan el dato almacenado actualmente.
+      operationId: updateCredential
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificador único de la credencial a actualizar
+          schema:
+            type: string
+            example: "cred_001"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialUpdateRequest'
+            example:
+              password: "NuevaClave456!"
+              email: "nuevo.correo@correo.com"
+              roles:
+                - "CUSTOMER"
+                - "VIP"
+              enabled: true
+      responses:
+        '200':
+          description: Credencial actualizada exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialResponse'
+        '404':
+          description: Credencial no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '400':
+          description: Datos de solicitud inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+    delete:
+      tags:
+        - Credentials
+      summary: Elimina una credencial de acceso
+      description: Elimina permanentemente una credencial del sistema
+      operationId: deleteCredential
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificador único de la credencial a eliminar
+          schema:
+            type: string
+            example: "cred_001"
+      responses:
+        '204':
+          description: Credencial eliminada exitosamente
+        '404':
+          description: Credencial no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+components:
+  schemas:
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      description: Credenciales de inicio de sesión del cliente
+      properties:
+        username:
+          type: string
+          description: Nombre de usuario único del cliente
+          example: "juan.perez"
+        password:
+          type: string
+          format: password
+          description: Contraseña del cliente en texto plano (se verifica con BCrypt)
+          example: "MiClave123!"
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refreshToken
+      description: Request para refrescar el access token usando un refresh token válido
+      properties:
+        refreshToken:
+          type: string
+          description: Refresh token JWT previamente emitido durante el login
+          example: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqdWFuLnBlcmV6IiwidHlwZSI6InJlZnJlc2gifQ.xyz789"
+
+    TokenResponse:
+      type: object
+      description: |
+        Respuesta con los tokens JWT emitidos al autenticar a un cliente.
+        El access token tiene vida corta (1 hora) y el refresh token tiene vida larga (7 días)
+      properties:
+        accessToken:
+          type: string
+          description: Access token JWT con firma HS256. Vida útil: 1 hora (3600 segundos)
+          example: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqdWFuLnBlcmV6IiwiZXhwIjoxNjk5OTk5OTk5fQ.abc123"
+        tokenType:
+          type: string
+          description: Tipo del token. Siempre es "Bearer"
+          example: "Bearer"
+        expiresIn:
+          type: integer
+          format: int64
+          description: Vigencia del access token en segundos
+          example: 3600
+        refreshToken:
+          type: string
+          description: Refresh token JWT para obtener nuevos access tokens. Vida útil: 7 días
+          example: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJqdWFuLnBlcmV6IiwidHlwZSI6InJlZnJlc2gifQ.xyz789"
+        username:
+          type: string
+          description: Nombre de usuario del cliente autenticado
+          example: "juan.perez"
+        roles:
+          type: array
+          description: Lista de roles asignados al cliente
+          items:
+            type: string
+          example:
+            - "CUSTOMER"
+            - "PERSONAL"
+
+    LogoutResponse:
+      type: object
+      description: Respuesta que confirma el cierre de sesión exitoso
+      properties:
+        message:
+          type: string
+          description: Mensaje de confirmación del logout
+          example: "Sesión cerrada exitosamente"
+        success:
+          type: boolean
+          description: Indica si el logout se realizó correctamente
+          example: true
+
+    TokenValidationResponse:
+      type: object
+      description: Respuesta con el resultado de validar un access token JWT
+      properties:
+        valid:
+          type: boolean
+          description: Indica si el token es válido y no ha expirado
+          example: true
+        username:
+          type: string
+          description: Nombre de usuario del sujeto del token
+          example: "juan.perez"
+        customerId:
+          type: string
+          description: Identificador del cliente asociado al token
+          example: "CUST001"
+        roles:
+          type: array
+          description: Lista de roles del cliente extraídos del token
+          items:
+            type: string
+          example:
+            - "CUSTOMER"
+            - "PERSONAL"
+
+    CredentialCreateRequest:
+      type: object
+      required:
+        - username
+        - password
+      description: |
+        Datos para crear una nueva credencial de acceso.
+        La contraseña se recibe en claro y se hashea con BCrypt antes de persistirla
+      properties:
+        username:
+          type: string
+          description: Nombre de usuario único para la credencial
+          example: "juan.perez"
+        password:
+          type: string
+          format: password
+          description: Contraseña del cliente en texto plano (se hashea con BCrypt)
+          example: "MiClave123!"
+        customerId:
+          type: string
+          description: Identificador del cliente asociado a la credencial
+          example: "CUST001"
+          nullable: true
+        email:
+          type: string
+          format: email
+          description: Correo electrónico del cliente (debe tener formato válido)
+          example: "juan.perez@correo.com"
+          nullable: true
+        roles:
+          type: array
+          description: Lista de roles asignados al cliente
+          items:
+            type: string
+          example:
+            - "CUSTOMER"
+            - "PERSONAL"
+          nullable: true
+        enabled:
+          type: boolean
+          description: Estado inicial de la credencial (true = habilitada, false = deshabilitada)
+          example: true
+          nullable: true
+
+    CredentialUpdateRequest:
+      type: object
+      description: |
+        Datos para actualizar una credencial existente.
+        Todos los campos son opcionales: los valores null conservan el dato almacenado actualmente
+      properties:
+        password:
+          type: string
+          format: password
+          description: Nueva contraseña del cliente (se hashea con BCrypt). Null para no cambiarla
+          example: "NuevaClave456!"
+          nullable: true
+        customerId:
+          type: string
+          description: Nuevo identificador del cliente. Null para no cambiarlo
+          example: "CUST002"
+          nullable: true
+        email:
+          type: string
+          format: email
+          description: Nuevo correo electrónico del cliente (debe tener formato válido). Null para no cambiarlo
+          example: "nuevo.correo@correo.com"
+          nullable: true
+        roles:
+          type: array
+          description: Nueva lista de roles. Null para no cambiarlos
+          items:
+            type: string
+          example:
+            - "CUSTOMER"
+            - "VIP"
+          nullable: true
+        enabled:
+          type: boolean
+          description: Nuevo estado de la credencial. Null para no cambiarlo
+          example: true
+          nullable: true
+
+    CredentialResponse:
+      type: object
+      description: |
+        Respuesta con los datos de una credencial de acceso.
+        **Nota:** Nunca expone el hash de la contraseña por seguridad
+      properties:
+        id:
+          type: string
+          description: Identificador único de la credencial
+          example: "cred_001"
+        username:
+          type: string
+          description: Nombre de usuario de la credencial
+          example: "juan.perez"
+        customerId:
+          type: string
+          description: Identificador del cliente asociado
+          example: "CUST001"
+          nullable: true
+        email:
+          type: string
+          format: email
+          description: Correo electrónico del cliente
+          example: "juan.perez@correo.com"
+          nullable: true
+        roles:
+          type: array
+          description: Lista de roles asignados al cliente
+          items:
+            type: string
+          example:
+            - "CUSTOMER"
+            - "PERSONAL"
+        enabled:
+          type: boolean
+          description: Estado de la credencial (true = habilitada, false = deshabilitada)
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+          description: Instante de creación de la credencial en formato ISO 8601
+          example: "2024-01-15T10:30:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Instante de última actualización en formato ISO 8601
+          example: "2024-01-15T10:30:00Z"
+        lastLoginAt:
+          type: string
+          format: date-time
+          description: Instante del último inicio de sesión exitoso en formato ISO 8601. Null si nunca ha iniciado sesión
+          example: "2024-01-15T14:20:00Z"
+          nullable: true
+
+    ApiError:
+      type: object
+      description: |
+        Cuerpo estándar de error de la API Yanki.
+        Todos los errores siguen esta estructura uniforme para facilitar el manejo de errores en los clientes
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Momento exacto en que se generó el error en formato ISO 8601
+          example: "2024-01-15T10:30:00Z"
+        status:
+          type: integer
+          format: int32
+          description: Código de estado HTTP estándar
+          example: 401
+        error:
+          type: string
+          description: Descripción textual del código de estado HTTP
+          example: "Unauthorized"
+        code:
+          type: string
+          description: Código de negocio específico del error para manejo programático
+          example: "INVALID_CREDENTIALS"
+        message:
+          type: string
+          description: Descripción legible del error en español
+          example: "Nombre de usuario o contraseña incorrectos"
+        path:
+          type: string
+          description: Ruta de la API que originó el error
+          example: "/api/auth/login"
+        details:
+          type: object
+          description: Detalle adicional del error, como errores de validación por campo
+          additionalProperties: true
+          nullable: true
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token JWT obtenido mediante el endpoint /api/auth/login
+
+security: []
