@@ -19,7 +19,7 @@ Es el único servicio que conoce las contraseñas de los usuarios y es el encarg
 | Responsabilidad | Qué significa en la práctica |
 |---|---|
 | **Login** | Verifica usuario y contraseña → emite access token (1h) + refresh token (7 días) |
-| **Logout** | Revoca el token actual guardándolo en Redis (blacklist) y limpia la cache |
+| **Logout** | Revoca el token guardándolo en Redis (blacklist) y limpia la cache de credenciales |
 | **Refresh** | Emite un nuevo access token usando un refresh token válido |
 | **Validación** | Valida un access token y devuelve sus claims (usado por api-gateway) |
 | **CRUD Credenciales** | Admin puede crear, listar, leer, actualizar y eliminar credenciales |
@@ -134,9 +134,9 @@ sequenceDiagram
         Controller-->>Gateway: 401
         Gateway-->>Cliente: 401 INVALID_CREDENTIALS
     else Credencial deshabilitada
-        AuthService-->>Controller: ACCOUNT_DISABLED
-        Controller-->>Gateway: 403
-        Gateway-->>Cliente: 403 ACCOUNT_DISABLED
+        AuthService-->>Controller: INVALID_CREDENTIALS
+        Controller-->>Gateway: 401
+        Gateway-->>Cliente: 401 INVALID_CREDENTIALS
     else Credencial válida
         AuthService->>CredService: recordLogin(credential)
         CredService->>MongoDB: actualizar lastLoginAt
@@ -151,7 +151,7 @@ sequenceDiagram
         AuthService-->>Controller: IssuedTokens
 
         Controller-->>Gateway: 200 TokenResponse
-        Gateway-->>Cliente: 200 {accessToken, refreshToken, tokenType, expiresIn}
+        Gateway-->>Cliente: 200 {accessToken, refreshToken, tokenType, expiresIn, username, roles}
     end
 ```
 
@@ -196,7 +196,7 @@ sequenceDiagram
     Controller->>Controller: Extraer token del header
 
     alt Header ausente o mal formado
-        Controller-->>Cliente: 400 INVALID_TOKEN
+        Controller-->>Cliente: 401 INVALID_TOKEN
     else Header válido
         Controller->>AuthService: logout(accessToken)
 
@@ -220,7 +220,7 @@ sequenceDiagram
         Redis-->>CredService: OK
 
         AuthService-->>Controller: Completado
-        Controller-->>Cliente: 204 No Content
+        Controller-->>Cliente: 200 {message, success}
     end
 ```
 
@@ -323,7 +323,7 @@ sequenceDiagram
 
     Consumer->>CredService: registerFromEvent(event)
 
-    CredService->>MongoDB: ¿Existe processed_event?<br/>clave: <topic>:<customerId>:<username>
+    CredService->>MongoDB: ¿Existe eventKey?<br/>clave: <topic>:<customerId>:<username>
 
     alt Evento ya procesado (idempotencia)
         MongoDB-->>CredService: Sí existe
@@ -349,7 +349,7 @@ sequenceDiagram
 |---|---|---|---|
 | `POST` | `/api/auth/login` | Inicia sesión → devuelve access + refresh token | ❌ No requiere |
 | `POST` | `/api/auth/refresh` | Refresca el access token usando el refresh token | ❌ No requiere |
-| `POST` | `/api/auth/logout` | Cierra sesión → revoca el token en Redis | ✅ Bearer en header |
+| `POST` | `/api/auth/logout` | Cierra sesión → revoca el token en Redis y limpia cache | ✅ Bearer en header |
 | `GET` | `/api/auth/validate` | Valida un access token y devuelve sus claims | ✅ Bearer en header |
 
 ### 7.2 Credenciales (Admin)
@@ -375,7 +375,9 @@ curl -X POST http://localhost:8081/api/auth/login \
   "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "tokenType": "Bearer",
-  "expiresIn": 3600
+  "expiresIn": 3600,
+  "username": "juan.perez@correo.com",
+  "roles": ["ROLE_CUSTOMER"]
 }
 
 # Refresh
@@ -398,15 +400,16 @@ curl -X GET http://localhost:8081/api/auth/validate \
 
 | Código | HTTP | Causa |
 |---|---|---|
-| `INVALID_CREDENTIALS` | 401 | Username o password incorrectos |
-| `ACCOUNT_LOCKED` | 403 | Demasiados intentos fallidos (bloqueo temporal) |
-| `ACCOUNT_DISABLED` | 403 | Credencial deshabilitada por admin |
+| `INVALID_CREDENTIALS` | 401 | Username o password incorrectos, o credencial deshabilitada |
+| `INVALID_TOKEN` | 401 | Header Authorization ausente, mal formado o firma inválida |
 | `TOKEN_EXPIRED` | 401 | Access token expirado |
-| `TOKEN_INVALID` | 401 | Firma inválida o issuer no coincide |
-| `INVALID_TOKEN` | 400 | Header Authorization ausente o mal formado |
 | `CREDENTIAL_NOT_FOUND` | 404 | Credencial no encontrada por ID |
 | `CREDENTIAL_ALREADY_EXISTS` | 409 | Username duplicado |
-| `CUSTOMER_ALREADY_HAS_CREDENTIALS` | 409 | Evento de registro duplicado (idempotencia) |
+| `VALIDATION_ERROR` | 400 | Campos del request inválidos |
+| `INVALID_REQUEST` | 400 | Petición mal formada |
+| `ROUTE_NOT_FOUND` | 404 | Ruta no registrada en el servicio |
+| `METHOD_NOT_ALLOWED` | 405 | Método HTTP no permitido en la ruta |
+| `INTERNAL_ERROR` | 500 | Error inesperado no controlado |
 
 ---
 
@@ -419,25 +422,25 @@ curl -X GET http://localhost:8081/api/auth/validate \
 | `id` | String | ID único (MongoDB ObjectId) |
 | `username` | String | Email en minúsculas (único, indexado) |
 | `passwordHash` | String | Contraseña hasheada con BCrypt (cost 12) |
-| `customerId` | String | ID del cliente asociado |
-| `email` | String | Email del usuario |
+| `customerId` | String | ID del cliente asociado (indexado) |
+| `email` | String | Email del usuario (indexado) |
 | `roles` | List\<String\> | Roles: `ROLE_CUSTOMER`, `ROLE_OPERATOR`, `ROLE_ADMIN` |
 | `enabled` | Boolean | `true` = activa, `false` = deshabilitada |
-| `failedAttempts` | Integer | Contador de intentos fallidos de login |
-| `lockedUntil` | LocalDateTime | Fecha de fin de bloqueo temporal |
-| `lastLoginAt` | LocalDateTime | Último acceso exitoso |
-| `createdAt` | LocalDateTime | Fecha de creación |
-| `updatedAt` | LocalDateTime | Última modificación |
+| `createdAt` | Instant | Fecha de creación |
+| `updatedAt` | Instant | Última modificación |
+| `lastLoginAt` | Instant | Último acceso exitoso |
+
+> **Nota**: Los campos `failedAttempts` y `lockedUntil` no existen en el modelo actual. El servicio no implementa bloqueo por intentos fallidos.
 
 ### 9.2 Evento Procesado (`processed_events` en MongoDB)
 
 | Campo | Tipo | Descripción |
 |---|---|---|
-| `id` | String | Clave idempotencia: `<topic>:<customerId>:<username>` |
+| `id` | String | ID único (MongoDB ObjectId) |
+| `eventKey` | String | Clave de idempotencia única: `<topic>:<customerId>:<username>` |
 | `topic` | String | Topic de Kafka origen |
 | `entityId` | String | customerId del evento |
-| `username` | String | Username del evento |
-| `processedAt` | LocalDateTime | Fecha de procesamiento |
+| `processedAt` | Instant | Fecha de procesamiento |
 
 ---
 
@@ -445,7 +448,7 @@ curl -X GET http://localhost:8081/api/auth/validate \
 
 | Clave | Contenido | TTL | Propósito |
 |---|---|---|---|
-| `yanki:auth:credential:{username}` | Credencial JSON | 15 minutos | Cache de credenciales para evitar consultas a MongoDB |
+| `yanki:auth:credential:{username}` | Credencial JSON | 15 minutos (configurable) | Cache de credenciales para evitar consultas a MongoDB |
 | `yanki:auth:blacklist:{token}` | `1` | Tiempo restante del token | Lista negra de tokens revocados por logout |
 
 ---
@@ -457,6 +460,15 @@ curl -X GET http://localhost:8081/api/auth/validate \
 | Topic | Payload | Acción |
 |---|---|---|
 | `yanki.customer.registered.v1` | `CustomerRegisteredEvent` | Crear credencial automática con contraseña temporal |
+
+El payload `CustomerRegisteredEvent` incluye:
+- `customerId` — identificador del cliente
+- `username` — nombre de usuario de la credencial
+- `email` — correo electrónico del cliente
+- `temporaryPassword` — contraseña temporal en claro
+- `roles` — roles del cliente
+- `customerType` — tipo de cliente (PERSONAL, CORPORATE)
+- `status` — estado del cliente (ACTIVE, BLOCKED, DELETED)
 
 ### 11.2 Publicados (Outbound)
 
@@ -471,7 +483,7 @@ curl -X GET http://localhost:8081/api/auth/validate \
 | Variable | Default | Descripción |
 |---|---|---|
 | `SERVER_PORT` | `8081` | Puerto HTTP |
-| `MONGODB_URI` | `mongodb://localhost:27017/yanki_auth` | URI de conexión MongoDB |
+| `MONGODB_URI` | **REQUERIDO** | URI de conexión MongoDB |
 | `REDIS_HOST` | `localhost` | Host Redis |
 | `REDIS_PORT` | `6379` | Puerto Redis |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Brokers Kafka |
@@ -479,10 +491,11 @@ curl -X GET http://localhost:8081/api/auth/validate \
 | `EUREKA_URL` | `http://discovery-service:8761/eureka/` | Service Discovery |
 | `CONFIG_SERVER_URL` | `http://localhost:8888` | Config Server |
 | `JWT_SECRET` | **REQUERIDO** | Clave HS256 (mínimo 32 caracteres) — **debe coincidir con api-gateway** |
-| `JWT_ISSUER` | `yanki-auth-service` | Emisor del token — **debe coincidir con api-gateway** |
+| `JWT_ISSUER` | `yanki-platform` | Emisor del token — **debe coincidir con api-gateway** |
 | `JWT_ACCESS_TOKEN_EXPIRATION` | `1h` | Vigencia del access token |
 | `JWT_REFRESH_TOKEN_EXPIRATION` | `7d` | Vigencia del refresh token |
 | `CREDENTIAL_CACHE_TTL` | `15m` | TTL de la cache de credenciales en Redis |
+| `CREDENTIAL_CACHE_KEY_PREFIX` | `yanki:auth:credential:` | Prefijo de las claves de cache |
 
 ### 12.2 Roles Disponibles
 
@@ -584,6 +597,7 @@ src/main/java/com/yanki/auth
             ├── CredentialResponse.java
             ├── CredentialUpdateRequest.java
             ├── LoginRequest.java
+            ├── LogoutResponse.java        # Confirmación de logout exitoso
             ├── RefreshTokenRequest.java
             ├── TokenResponse.java
             └── TokenValidationResponse.java
@@ -600,7 +614,7 @@ src/main/java/com/yanki/auth
 3. Se verifica que la credencial exista, esté habilitada y la contraseña coincida
 4. Se actualiza el último acceso (`lastLoginAt`) en MongoDB y Redis
 5. Se emiten dos tokens JWT: access (1h) y refresh (7 días)
-6. Se devuelve `200` con ambos tokens
+6. Se devuelve `200` con ambos tokens, username y roles
 
 ### CU-02: Login con credenciales inválidas
 
@@ -615,7 +629,7 @@ src/main/java/com/yanki/auth
 3. Se calcula el tiempo restante de expiración
 4. Se guarda el token en Redis (`yanki:auth:blacklist:<token>`) con TTL = tiempo restante
 5. Se elimina la credencial de la cache de Redis
-6. Se devuelve `204 No Content`
+6. Se devuelve `200` con mensaje de confirmación
 7. **Resultado:** Si el cliente intenta usar el mismo token, el api-gateway lo rechaza
 
 ### CU-04: Refresh token exitoso
@@ -630,7 +644,7 @@ src/main/java/com/yanki/auth
 
 1. `customers-service` publica `yanki.customer.registered.v1` en Kafka
 2. `CredentialConsumer` recibe el evento
-3. Se verifica idempotencia en `processed_events`
+3. Se verifica idempotencia mediante `eventKey` en `processed_events`
 4. Si es nuevo: se hashea la contraseña temporal (BCrypt) y se crea la credencial
 5. Se registra el evento procesado para evitar duplicados
 6. El cliente puede hacer login con su email y la contraseña temporal
@@ -661,12 +675,19 @@ src/main/java/com/yanki/auth
 ### 16.3 Idempotencia de Eventos
 
 - La clave de idempotencia es `<topic>:<customerId>:<username>`.
+- Se almacena en el campo `eventKey` de `processed_events` con índice único.
 - Un evento duplicado se detecta y se ignora sin duplicar la credencial.
 
 ### 16.4 Contraseñas Temporales
 
 - ⚠️ La contraseña temporal viaja en claro por Kafka.
 - Se recomienda forzar un cambio de contraseña al primer login del cliente.
+
+### 16.5 Sin bloqueo por intentos fallidos
+
+- El modelo `Credential` **no incluye** los campos `failedAttempts` ni `lockedUntil`.
+- El servicio no implementa rate limiting ni bloqueo temporal de cuenta.
+- La seguridad se basa en BCrypt, el flag `enabled` y la blacklist de tokens.
 
 ---
 

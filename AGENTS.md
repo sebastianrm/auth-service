@@ -2,7 +2,7 @@
 
 ## Agent Identity
 - **Name**: `yanki-auth-agent`
-- **Version**: 1.1.0
+- **Version**: 2.0.0
 - **Service**: `auth-service`
 - **Port**: `8081`
 - **Partes del proyecto**: **I / II / III**
@@ -21,25 +21,24 @@ El microservicio es responsable de:
    - login
    - refresh token
    - validación de access token
-   - logout por revocación de refresh token
+   - logout por revocación de refresh token con blacklist en Redis
 
 2. **Gestión de credenciales**
    - crear credenciales
    - listar credenciales
-   - consultar credencial
+   - consultar credencial por ID
    - actualizar credencial
    - eliminar credencial
 
 3. **Onboarding automático event-driven**
    - consumir `yanki.customer.registered.v1`
    - crear credencial inicial con contraseña temporal
-   - garantizar idempotencia del consumo
+   - garantizar idempotencia del consumo mediante `eventKey`
 
 4. **Controles de seguridad**
    - hash BCrypt
-   - rate limit de login
-   - bloqueo por intentos fallidos
    - blacklist de refresh tokens en Redis
+   - invalidación de cache de credenciales en logout
 
 ---
 
@@ -127,7 +126,7 @@ El servicio debe implementar:
 - emisión de `refreshToken`
 - refresh de access token
 - validación de access token
-- revocación de refresh token
+- logout con blacklist de token en Redis e invalidación de cache
 
 ### 5.2 Credenciales
 Debe existir CRUD completo de credenciales:
@@ -151,16 +150,15 @@ Acción obligatoria:
 Debe contemplar:
 
 - hash BCrypt de contraseñas
-- usuario deshabilitado
-- bloqueo temporal por intentos fallidos
+- usuario deshabilitado (`enabled` flag)
 - blacklist de refresh token en Redis
-- rate limiting de login por IP + username
+- invalidación de cache de credenciales en logout
+
+> **Nota**: El servicio **no implementa** rate limiting ni bloqueo por intentos fallidos. Los campos `failedAttempts` y `lockedUntil` fueron eliminados del modelo `Credential`.
 
 ---
 
-## 6. Endpoints REST obligatorios
-
-> Importante: la documentación histórica del servicio tenía rutas desalineadas. El código real observado expone `/api/auth/credentials`, no `/api/credentials`. El agente debe documentar y construir según el código real o alinear código y documentación explícitamente.
+## 6. Endpoints REST implementados
 
 ### 6.1 Endpoints de autenticación
 
@@ -168,6 +166,7 @@ Debe contemplar:
 |---|---|---|---|---|
 | `POST` | `/api/auth/login` | `LoginRequest` | `TokenResponse` | `200` |
 | `POST` | `/api/auth/refresh` | `RefreshTokenRequest` | `TokenResponse` | `200` |
+| `POST` | `/api/auth/logout` | Header `Authorization: Bearer <token>` | `LogoutResponse` | `200` |
 | `GET` | `/api/auth/validate` | Header `Authorization: Bearer <token>` | `TokenValidationResponse` | `200` |
 
 ### 6.2 Endpoints de credenciales
@@ -180,16 +179,6 @@ Debe contemplar:
 | `PUT` | `/api/auth/credentials/{id}` | `CredentialUpdateRequest` | `CredentialResponse` | `200` |
 | `DELETE` | `/api/auth/credentials/{id}` | — | vacío | `204` |
 
-### 6.3 Endpoint faltante vs documentación previa
-
-La documentación previa hablaba de `logout`, pero el `AuthController` leído no lo expone.  
-Por tanto, el agente debe hacer una de estas dos cosas:
-
-1. **Si el servicio debe cumplir CU-10 completo**, agregar `POST /api/auth/logout`.
-2. **Si el servicio se mantiene como está**, corregir README y AGENTS para no documentar un endpoint inexistente.
-
-No se debe dejar una discrepancia entre código y documentación.
-
 ---
 
 ## 7. Casos de éxito y error que deben quedar cubiertos
@@ -200,6 +189,7 @@ La documentación final debe cubrir explícitamente los escenarios derivados de 
 - login exitoso
 - refresh exitoso
 - validate exitoso
+- logout exitoso con blacklist en Redis
 - creación de credencial manual exitosa
 - listado de credenciales exitoso
 - consulta de credencial exitosa
@@ -210,17 +200,17 @@ La documentación final debe cubrir explícitamente los escenarios derivados de 
 
 ### 7.2 Casos de error mínimos
 - credenciales inválidas
-- cuenta bloqueada
 - cuenta deshabilitada
 - token inválido
 - token expirado
-- refresh token revocado
 - credencial duplicada
 - credencial inexistente
 - request inválido por validación
 - encabezado Authorization ausente o mal formado
 - error de duplicidad en MongoDB
 - evento duplicado ya procesado
+- ruta no encontrada (404)
+- método HTTP no permitido (405)
 
 ### 7.3 Códigos HTTP a documentar
 Como mínimo, cubrir:
@@ -229,8 +219,8 @@ Como mínimo, cubrir:
 - `204`
 - `400`
 - `401`
-- `403`
 - `404`
+- `405`
 - `409`
 - `500`
 
@@ -248,33 +238,38 @@ Como mínimo, cubrir:
   - `ROLE_OPERATOR`
   - `ROLE_ADMIN`
 - `enabled` controla acceso
-- intentos fallidos incrementan contador
-- al superar máximo se bloquea temporalmente
+- **No existe bloqueo por intentos fallidos** — los campos `failedAttempts` y `lockedUntil` fueron eliminados del modelo
 
 ### 8.2 JWT
 - algoritmo: `HS256`
-- access token TTL: `15m`
-- refresh token TTL: `7d`
+- access token TTL: `1h` (configurable vía `JWT_ACCESS_TOKEN_EXPIRATION`)
+- refresh token TTL: `7d` (configurable vía `JWT_REFRESH_TOKEN_EXPIRATION`)
 - issuer compartido con gateway
 - secret mínimo de 32 caracteres
 - validate debe devolver claims suficientes para propagación por gateway
+- `TokenResponse` incluye `username` y `roles` del cliente
 
-### 8.3 Onboarding automático
+### 8.3 Logout
+- parsea el access token para obtener el username
+- agrega el token a la blacklist en Redis con TTL igual al tiempo restante de expiración
+- invalida la cache de credenciales del usuario en Redis
+- devuelve `LogoutResponse` con mensaje de confirmación
+
+### 8.4 Onboarding automático
 Cuando llega `yanki.customer.registered.v1`:
-1. leer `customerId`, `username`, `email`, `temporaryPassword`, `roles`
-2. construir clave idempotente
-3. si ya existe en `processed_events`, ignorar
+1. leer `customerId`, `username`, `email`, `temporaryPassword`, `roles`, `customerType`, `status`
+2. construir clave idempotente: `<topic>:<customerId>:<username>`
+3. si ya existe en `processed_events` por `eventKey`, ignorar
 4. si no existe:
    - hashear contraseña temporal
    - crear credencial
    - marcar evento como procesado
-   - opcionalmente actualizar caché
+   - invalidar cache
 
-### 8.4 Riesgos conocidos a conservar en documentación
+### 8.5 Riesgos conocidos a conservar en documentación
 - `temporaryPassword` viaja en claro por Kafka
-- hay inconsistencia entre la idempotencia exigida por `docs/EVENTOS.md` y la implementada real
 - `JWT_ISSUER` puede diferir entre gateway y auth si no se configura bien
-- la documentación histórica mencionó endpoints distintos a los realmente implementados
+- el evento `CustomerRegisteredEvent` incluye `customerType` y `status` que no se usan directamente en la creación de la credencial
 
 ---
 
@@ -283,29 +278,31 @@ Cuando llega `yanki.customer.registered.v1`:
 ### 9.1 Colección `credentials`
 Campos mínimos esperados:
 - `id`
-- `username`
+- `username` (único, indexado)
 - `passwordHash`
-- `customerId`
-- `email`
+- `customerId` (indexado)
+- `email` (indexado)
 - `roles`
 - `enabled`
-- `failedAttempts`
-- `lockedUntil`
-- `lastLoginAt`
-- `createdAt`
-- `updatedAt`
+- `createdAt` (Instant)
+- `updatedAt` (Instant)
+- `lastLoginAt` (Instant)
+
+> **Nota**: Los campos `failedAttempts` y `lockedUntil` **no existen** en el modelo actual.
 
 ### 9.2 Colección `processed_events`
 Campos mínimos esperados:
 - `id`
+- `eventKey` (único, indexado) — formato: `<topic>:<customerId>:<username>`
 - `topic`
 - `entityId`
-- `username`
-- `processedAt`
+- `processedAt` (Instant)
 
 ### 9.3 Índices esperados
-- índice único en `credentials.username`
-- unicidad efectiva en `processed_events.id`
+- índice único en `credentials.username` (`idx_unique_username`)
+- índice en `credentials.customerId` (`idx_customerId`)
+- índice en `credentials.email` (`idx_email`)
+- índice único en `processed_events.eventKey`
 
 ---
 
@@ -315,14 +312,16 @@ Claves esperadas:
 
 | Clave | Uso |
 |---|---|
-| `yanki:auth:credential:{username}` | caché de credencial |
-| `yanki:auth:ratelimit:{ip}:{user}` | control de intentos/login |
-| `yanki:auth:revoked:{refreshToken}` | blacklist refresh token |
+| `yanki:auth:credential:{username}` | caché de credencial (TTL configurable, default 15m) |
+| `yanki:auth:blacklist:{token}` | blacklist de tokens revocados por logout (TTL = tiempo restante del token) |
 
 Comportamiento:
-- invalidar o refrescar caché al crear/actualizar/eliminar credenciales
-- blacklist con TTL igual al refresh token
-- rate limit tipo sliding window o equivalente documentado
+- invalidar cache al crear/actualizar/eliminar credenciales
+- invalidar cache al hacer logout
+- blacklist con TTL igual al tiempo restante de expiración del token
+- no almacenar tokens ya expirados en la blacklist
+
+> **Nota**: No se usan claves de rate limiting en la implementación actual.
 
 ---
 
@@ -338,15 +337,13 @@ Debe incluir al menos:
 - `email`
 - `temporaryPassword`
 - `roles`
+- `customerType` (PERSONAL, CORPORATE)
+- `status` (ACTIVE, BLOCKED, DELETED)
 
 ### Idempotencia
-- `docs/EVENTOS.md` exige `<topic>:<entityId>:<occurredAt>`
-- implementación documentada actual usa `<topic>:<customerId>:<username>`
-
-El agente debe:
-1. documentar la diferencia
-2. no ocultar la inconsistencia
-3. decidir si alinea código o mantiene compatibilidad explícita
+- La clave de idempotencia es `<topic>:<customerId>:<username>`
+- Se almacena en el campo `eventKey` de `processed_events`
+- El repositorio verifica existencia mediante `existsByEventKey`
 
 ---
 
@@ -362,12 +359,12 @@ El agente debe:
 | `KAFKA_GROUP_ID` | sí | consumer group auth |
 | `EUREKA_URL` | sí | service discovery |
 | `CONFIG_SERVER_URL` | sí | config centralizada |
-| `JWT_SECRET` | sí | debe coincidir con gateway |
-| `JWT_ISSUER` | sí | debe coincidir con gateway |
-| `JWT_ACCESS_TTL` | sí | default `15m` |
-| `JWT_REFRESH_TTL` | sí | default `7d` |
-| `YANKI_AUTH_MAX_FAILED_ATTEMPTS` | sí | default `5` |
-| `YANKI_AUTH_LOCKOUT_DURATION` | sí | default `15m` |
+| `JWT_SECRET` | sí | debe coincidir con gateway, mínimo 32 caracteres |
+| `JWT_ISSUER` | sí | default `yanki-platform`, debe coincidir con gateway |
+| `JWT_ACCESS_TOKEN_EXPIRATION` | no | default `1h` |
+| `JWT_REFRESH_TOKEN_EXPIRATION` | no | default `7d` |
+| `CREDENTIAL_CACHE_TTL` | no | default `15m` |
+| `CREDENTIAL_CACHE_KEY_PREFIX` | no | default `yanki:auth:credential:` |
 
 ---
 
@@ -386,23 +383,71 @@ auth-service/
     │   │   ├── AuthServiceApplication.java
     │   │   ├── domain/
     │   │   │   ├── model/
+    │   │   │   │   ├── Credential.java
+    │   │   │   │   ├── CredentialCreateCommand.java
+    │   │   │   │   ├── CredentialUpdateCommand.java
+    │   │   │   │   ├── IssuedTokens.java
+    │   │   │   │   ├── LoginCommand.java
+    │   │   │   │   ├── ProcessedEvent.java
+    │   │   │   │   ├── RefreshCommand.java
+    │   │   │   │   ├── TokenClaims.java
+    │   │   │   │   └── TokenValidationResult.java
     │   │   │   ├── repository/
+    │   │   │   │   ├── CredentialRepository.java
+    │   │   │   │   └── ProcessedEventRepository.java
     │   │   │   ├── service/
+    │   │   │   │   ├── AuthService.java
+    │   │   │   │   ├── CredentialCacheService.java
+    │   │   │   │   ├── CredentialService.java
+    │   │   │   │   └── JwtService.java
     │   │   │   ├── event/
+    │   │   │   │   ├── CustomerRegisteredEvent.java
+    │   │   │   │   └── Topics.java
     │   │   │   └── exception/
+    │   │   │       └── BusinessException.java
     │   │   ├── infrastructure/
     │   │   │   ├── config/
+    │   │   │   │   ├── CacheProperties.java
+    │   │   │   │   ├── JwtProperties.java
+    │   │   │   │   └── SecurityConfig.java
+    │   │   │   ├── cache/
+    │   │   │   │   └── TokenBlacklistService.java
     │   │   │   ├── messaging/
+    │   │   │   │   └── CredentialConsumer.java
     │   │   │   └── persistence/
+    │   │   │       └── ReactiveAdapter.java
     │   │   └── interfaces/
     │   │       └── rest/
+    │   │           ├── GlobalExceptionHandler.java
     │   │           ├── controller/
-    │   │           ├── dto/
-    │   │           └── GlobalExceptionHandler.java
+    │   │           │   ├── AuthController.java
+    │   │           │   └── CredentialController.java
+    │   │           └── dto/
+    │   │               ├── ApiError.java
+    │   │               ├── CredentialCreateRequest.java
+    │   │               ├── CredentialResponse.java
+    │   │               ├── CredentialUpdateRequest.java
+    │   │               ├── LoginRequest.java
+    │   │               ├── LogoutResponse.java
+    │   │               ├── RefreshTokenRequest.java
+    │   │               ├── TokenResponse.java
+    │   │               └── TokenValidationResponse.java
     │   └── resources/
     │       └── application.yml
     └── test/
         └── java/
+            └── com/yanki/auth/
+                ├── domain/service/
+                │   ├── AuthServiceTest.java
+                │   ├── CredentialCacheServiceTest.java
+                │   ├── CredentialServiceTest.java
+                │   └── JwtServiceTest.java
+                ├── infrastructure/messaging/
+                │   └── CredentialConsumerTest.java
+                └── interfaces/rest/controller/
+                    ├── AuthControllerTest.java
+                    ├── CredentialControllerTest.java
+                    └── GlobalExceptionHandlerTest.java
 ```
 
 ---
@@ -452,9 +497,10 @@ Un agente autónomo debe poder seguir esta secuencia:
    - `JwtService`
    - `AuthService`
    - `CredentialService`
-   - caché/rate limiting si aplica
+   - `CredentialCacheService`
+   - `TokenBlacklistService`
 6. implementar DTOs request/response
-7. implementar `AuthController`
+7. implementar `AuthController` con login, refresh, logout, validate
 8. implementar `CredentialController`
 9. implementar `GlobalExceptionHandler`
 10. implementar consumidor Kafka `customer.registered`
@@ -464,30 +510,20 @@ Un agente autónomo debe poder seguir esta secuencia:
 
 ---
 
-## 17. Brechas detectadas al validar la documentación actual
+## 17. Códigos de error implementados
 
-Estas brechas deben considerarse abiertas hasta que README y código estén alineados:
-
-1. **Ruta de credenciales inconsistente**
-   - README documenta `/api/credentials`
-   - código real expone `/api/auth/credentials`
-
-2. **Consulta/actualización por username inconsistente**
-   - README habla de `{username}`
-   - código real usa `{id}`
-
-3. **Método de validate inconsistente**
-   - README documentaba `POST /api/auth/validate`
-   - código real expone `GET /api/auth/validate` con header Authorization
-
-4. **Logout documentado pero no observado en controller**
-   - posible brecha entre CU-10 y el código real
-
-5. **Falta de casos HTTP completos**
-   - la documentación previa no cubría exhaustivamente `400`, `404`, `500`
-
-6. **Documentación insuficiente para reconstrucción autónoma**
-   - faltaba señalar dependencias obligatorias con `README.md` raíz, QA y casos de uso
+| Código | HTTP | Causa |
+|---|---|---|
+| `INVALID_CREDENTIALS` | 401 | Username o password incorrectos |
+| `INVALID_TOKEN` | 401 | Header Authorization ausente, mal formado o firma inválida |
+| `TOKEN_EXPIRED` | 401 | Access token expirado |
+| `CREDENTIAL_NOT_FOUND` | 404 | Credencial no encontrada por ID |
+| `CREDENTIAL_ALREADY_EXISTS` | 409 | Username duplicado o error de clave duplicada en MongoDB |
+| `VALIDATION_ERROR` | 400 | Campos del request inválidos |
+| `INVALID_REQUEST` | 400 | Petición mal formada |
+| `ROUTE_NOT_FOUND` | 404 | Ruta no registrada en el servicio |
+| `METHOD_NOT_ALLOWED` | 405 | Método HTTP no permitido en la ruta |
+| `INTERNAL_ERROR` | 500 | Error inesperado no controlado |
 
 ---
 
