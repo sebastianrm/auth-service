@@ -47,59 +47,30 @@ public class TokenBlacklistService {
      * @return completable cuando la operacion termina
      */
     public Completable blacklistToken(String token, Instant expiresAt) {
-        log.info("Intentando agregar token a la lista negra, expiracion: {}", expiresAt);
-        return Completable.create(emitter -> {
-            try {
-                if (token == null || token.isBlank()) {
-                    log.warn("Token nulo o vacio recibido para blacklisterizar");
-                    emitter.onComplete();
-                    return;
-                }
+        if (token == null || token.isBlank()) {
+            log.warn("Token nulo o vacio recibido para blacklisterizar");
+            return Completable.complete();
+        }
 
-                if (expiresAt == null) {
-                    log.warn("Fecha de expiracion nula para el token, no se puede calcular el TTL");
-                    emitter.onComplete();
-                    return;
-                }
+        if (expiresAt == null) {
+            log.warn("Fecha de expiracion nula para el token, no se puede calcular el TTL");
+            return Completable.complete();
+        }
 
-                Instant now = Instant.now();
-                Duration remaining = Duration.between(now, expiresAt);
+        Instant now = Instant.now();
+        Duration remaining = Duration.between(now, expiresAt);
 
-                if (remaining.isNegative() || remaining.isZero()) {
-                    log.info("Token ya expirado o sin tiempo restante, no se almacena en la lista negra");
-                    emitter.onComplete();
-                    return;
-                }
+        if (remaining.isNegative() || remaining.isZero()) {
+            log.debug("Token ya expirado o sin tiempo restante, no se almacena en la lista negra");
+            return Completable.complete();
+        }
 
-                String key = BLACKLIST_KEY_PREFIX + token;
-                log.debug("Almacenando token en lista negra con TTL de {} segundos, clave: {}",
-                        remaining.getSeconds(), key);
+        String key = BLACKLIST_KEY_PREFIX + token;
+        log.debug("Almacenando token en lista negra con TTL de {} segundos", remaining.getSeconds());
 
-                redisTemplate.opsForValue()
-                        .set(key, REVOKED_VALUE, remaining)
-                        .subscribe(
-                                success -> {
-                                    if (Boolean.TRUE.equals(success)) {
-                                        log.info("Token agregado a la lista negra con TTL de {} segundos",
-                                                remaining.getSeconds());
-                                        emitter.onComplete();
-                                    } else {
-                                        log.warn("Redis retorno false al almacenar el token en la lista negra");
-                                        emitter.onComplete();
-                                    }
-                                },
-                                error -> {
-                                    log.error("Error al agregar token a la lista negra en Redis: {}",
-                                            error.getMessage(), error);
-                                    // No propagamos el error: la revocacion falla de forma graceful
-                                    emitter.onComplete();
-                                }
-                        );
-            } catch (Exception ex) {
-                log.error("Error inesperado al preparar el token para la lista negra: {}",
-                        ex.getMessage(), ex);
-                emitter.onComplete();
-            }
-        });
+        return Completable.fromCompletionStage(
+                redisTemplate.opsForValue().set(key, REVOKED_VALUE, remaining).toFuture()
+        ).doOnComplete(() -> log.debug("Token agregado a la lista negra con TTL de {} segundos", remaining.getSeconds()))
+         .doOnError(error -> log.error("Error al agregar token a la lista negra en Redis: {}", error.getMessage(), error));
     }
 }

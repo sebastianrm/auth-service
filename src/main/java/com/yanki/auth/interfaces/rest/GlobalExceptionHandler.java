@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.reactive.resource.NoResourceFoundException;
+import org.springframework.web.server.MethodNotAllowedException;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.ServerWebInputException;
 
@@ -102,6 +103,26 @@ public class GlobalExceptionHandler {
         log.warn("Ruta no encontrada: {}", exchange.getRequest().getPath().value());
         return buildResponse(HttpStatus.NOT_FOUND, "ROUTE_NOT_FOUND",
                 "La ruta solicitada no existe: " + exchange.getRequest().getPath().value(), exchange, null);
+    }
+
+    /**
+     * Maneja las peticiones con metodo HTTP no permitido en la ruta solicitada.
+     *
+     * <p>Cuando un cliente envia un metodo HTTP que no esta soportado en un
+     * endpoint existente (por ejemplo DELETE en /api/auth/login), Spring WebFlux
+     * lanza {@link MethodNotAllowedException}. Se captura aqui para
+     * devolver un 405 Method Not Allowed en lugar de que caiga en el manejador
+     * generico de excepciones inesperadas.</p>
+     *
+     * @param ex excepcion de metodo no permitido
+     * @param exchange contexto de la peticion
+     * @return respuesta 405 con el detalle del error
+     */
+    @ExceptionHandler(MethodNotAllowedException.class)
+    public ResponseEntity<ApiError> handleMethodNotAllowedException(MethodNotAllowedException ex, ServerWebExchange exchange) {
+        log.warn("Metodo no permitido en {}: {}", exchange.getRequest().getPath().value(), ex.getMessage());
+        return buildResponse(HttpStatus.METHOD_NOT_ALLOWED, "METHOD_NOT_ALLOWED",
+                "El metodo " + exchange.getRequest().getMethod().name() + " no esta permitido para esta ruta", exchange, null);
     }
 
     /**

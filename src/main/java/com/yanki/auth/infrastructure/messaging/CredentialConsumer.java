@@ -34,10 +34,16 @@ public class CredentialConsumer {
             groupId = "${spring.kafka.consumer.group-id}",
             properties = "spring.json.value.default.type=com.yanki.auth.domain.event.CustomerRegisteredEvent")
     public void onCustomerRegistered(CustomerRegisteredEvent event) {
-        processRegistration(event).subscribe(
-                () -> log.info("Credencial del cliente {} procesada para el usuario {}",
-                        event.customerId(), event.username()),
-                error -> log.error("Error creando la credencial del cliente {}: {}", event.customerId(), error.getMessage()));
+        try {
+            processRegistration(event).toFuture().get(30, java.util.concurrent.TimeUnit.SECONDS);
+            log.info("Credencial del cliente procesada exitosamente");
+        } catch (java.util.concurrent.ExecutionException e) {
+            log.error("Error creando la credencial del cliente: {}", e.getCause() != null ? e.getCause().getMessage() : e.getMessage(), e);
+            throw new RuntimeException("Error procesando evento de registro: " + e.getCause().getMessage(), e.getCause());
+        } catch (Exception e) {
+            log.error("Error procesando evento de registro: {}", e.getMessage(), e);
+            throw new RuntimeException("Error procesando evento de registro: " + e.getMessage(), e);
+        }
     }
 
     /**

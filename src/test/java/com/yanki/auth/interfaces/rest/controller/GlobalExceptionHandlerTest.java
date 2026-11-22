@@ -57,4 +57,18 @@ public class GlobalExceptionHandlerTest {
     assert apiError.message().contains("Internal error");
 });
     }
+
+    @Test
+    void handleMethodNotAllowed() {
+        webTestClient.delete()
+            .uri("/api/auth/login")
+            .exchange()
+            .expectStatus().isEqualTo(HttpStatus.METHOD_NOT_ALLOWED)
+            .expectBody(ApiError.class)
+.consumeWith(response -> {
+    ApiError apiError = response.getResponseBody();
+    assert apiError.code().equals("METHOD_NOT_ALLOWED");
+    assert apiError.message().contains("DELETE");
+});
+    }
 }
