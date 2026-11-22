@@ -51,7 +51,7 @@ Al crear o ajustar este servicio, el agente debe alinear su implementación con 
 | `README.md` raíz | arquitectura global, puertos, stack, integración con gateway, Kafka, Redis |
 | `CONVENTIONS.md` | convenciones técnicas obligatorias del repositorio |
 | `docs/EVENTOS.md` | contrato del tópico `yanki.customer.registered.v1`, naming de eventos, idempotencia |
-| `CASOS_USO/CU-10-Autenticacion-JWT.md` | lógica funcional, actores, flujos y reglas de autenticación |
+| `../docs/CASOS_USO` | lógica funcional, actores, flujos y reglas de autenticación |
 | `CASOS_PRUEBA/CASOS_PRUEBA_QA.md` | escenarios QA mínimos que la documentación y el diseño deben cubrir |
 | `auth-service/README.md` | especificación funcional y operativa del servicio |
 | `api-gateway/README.md` y `api-gateway/AGENTS.md` | compatibilidad JWT, endpoint de validación, issuer/secret compartidos |
@@ -549,7 +549,7 @@ Un agente autónomo debe poder seguir esta secuencia:
 - `README.md`
 - `CONVENTIONS.md`
 - `docs/EVENTOS.md`
-- `CASOS_USO/CU-10-Autenticacion-JWT.md`
+- `../docs/CASOS_USO`
 - `CASOS_PRUEBA/CASOS_PRUEBA_QA.md`
 - `auth-service/README.md`
 - `api-gateway/README.md`

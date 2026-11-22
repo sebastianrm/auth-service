@@ -700,6 +700,6 @@ src/main/java/com/yanki/auth
 - `config-repo/application.yml` — Configuración centralizada
 - `docs/EVENTOS.md` — Evento `customer.registered.v1`
 - `init-mongo-parte1.js` — Credenciales de prueba (admin, operador)
-- `CASOS_USO/` — Casos de uso relacionados con autenticación
+- `../docs/CASOS_USO` — Casos de uso relacionados con autenticación
 - `system-prompt-auditoria-hexagonal-yanki.md` — Guía de auditoría hexagonal
 - `api/auth-service.yaml` — Contrato OpenAPI 3.0 completo con schemas, endpoints y errores

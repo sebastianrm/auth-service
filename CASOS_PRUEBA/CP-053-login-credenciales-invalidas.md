@@ -12,8 +12,8 @@
 Validar que el endpoint de login rechaza solicitudes con credenciales inválidas y retorna el error adecuado.
 
 ## 3. Origen documental
-- `CASOS_PRUEBA/CASOS_PRUEBA_QA.md`
-- `CASOS_USO/CU-10-Autenticacion-JWT.md`
+- `../../docs/CASOS_PRUEBA`
+- `../../docs/CASOS_USO`
 - `auth-service/README.md`
 
 ## 4. Precondiciones

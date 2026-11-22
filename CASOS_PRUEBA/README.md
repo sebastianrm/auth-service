@@ -2,8 +2,8 @@
 
 Este directorio concentra los casos de prueba específicos del microservicio `auth-service`, derivados de:
 
-- `CASOS_PRUEBA/CASOS_PRUEBA_QA.md`
-- `CASOS_USO/CU-10-Autenticacion-JWT.md`
+- `../../docs/CASOS_PRUEBA`
+- `../../docs/CASOS_USO`
 - `auth-service/README.md`
 - `auth-service/AGENTS.md`
 - `README.md` raíz
